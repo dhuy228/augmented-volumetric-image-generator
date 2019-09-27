@@ -769,7 +769,7 @@ class NumpyArrayIterator(Iterator):
             tuple([current_batch_size] + [1,] + list(self.x.shape)[1:]), dtype=K.floatx()) #Added + [1,] +
 
         # build batch of image data
-        seed_random = np.random.randint(0,2**31-1)
+        seed_random = np.random.randint(0,2**8-1)
         # Loop through z-axis
         for s in range(self.slices_per_volume):
             for i,j in enumerate(index_array):
