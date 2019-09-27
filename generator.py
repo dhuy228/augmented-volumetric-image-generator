@@ -28,6 +28,7 @@ except:
 
 try:
     from PIL import Image as pil_image
+    from PIL import ImageEnhance
 except ImportError:
     pil_image = None
 
@@ -59,6 +60,22 @@ def random_rotation(x, rg, row_axis=1, col_axis=2, channel_axis=0,
     x = apply_transform(x, transform_matrix, channel_axis, fill_mode, cval)
     return x
 
+def apply_brightness_shift(x, brightness):
+    """Performs a brightness shift.
+    # Arguments
+        x: Input tensor. Must be 3D.
+        brightness: Float. The new brightness value.
+        channel_axis: Index of axis for channels in the input tensor.
+    # Returns
+        Numpy image tensor.
+    # Raises
+        ValueError if `brightness_range` isn't a tuple.
+    """
+    x = array_to_img(x)
+    x = imgenhancer_Brightness = ImageEnhance.Brightness(x)
+    x = imgenhancer_Brightness.enhance(brightness)
+    x = img_to_array(x)
+    return x
 
 def random_shift(x, wrg, hrg, row_axis=1, col_axis=2, channel_axis=0,
                  fill_mode='nearest', cval=0.):
@@ -382,6 +399,7 @@ class customImageDataGenerator(object):
                  rotation_range=0.,
                  width_shift_range=0.,
                  height_shift_range=0.,
+                 brightness_range=None,
                  shear_range=0.,
                  zoom_range=0.,
                  channel_shift_range=0.,
@@ -405,6 +423,7 @@ class customImageDataGenerator(object):
         self.rotation_range = rotation_range
         self.width_shift_range = width_shift_range
         self.height_shift_range = height_shift_range
+        self.brightness_range = brightness_range
         self.shear_range = shear_range
         self.zoom_range = zoom_range
         self.channel_shift_range = channel_shift_range
@@ -605,6 +624,17 @@ class customImageDataGenerator(object):
         if self.random_mult_range != 0:
             if np.random.random() < 0.5:
                 x = random_mutiplication(x, self.random_mult_range)
+        
+        if self.brightness_range is not None:
+            if np.random.random() < 0.5:
+                if len(self.brightness_range) != 2:
+                    raise ValueError(
+                        '`brightness_range should be tuple or list of two floats. '
+                        'Received: %s' % (self.brightness_range,))
+                brightness = np.random.uniform(self.brightness_range[0],
+                                               self.brightness_range[1])
+                x = apply_brightness_shift(x, brightness)
+                
         return x
 
 class Iterator(object):
