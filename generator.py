@@ -475,13 +475,6 @@ class customImageDataGenerator(object):
             save_to_dir=save_to_dir,
             save_prefix=save_prefix,
             save_format=save_format)
-
-    # my addition
-    def change_dims(self, x):
-    	"""expands dimenstions of a batch of images"""
-    	img_channel_axis = self.channel_axis #- 1
-    	x = np.expand_dims(x, axis=0)
-    	return x
     
     def standardize(self, x):
         """Apply the normalization configuration to a batch of inputs.
@@ -669,9 +662,9 @@ class Iterator(object):
                 index_array = np.arange(n)
                 if shuffle:
                     index_array = np.random.permutation(n)
-            current_index = (self.batch_index * batch_size * slices_per_volume) % n
-            if n > current_index + batch_size*slices_per_volume:
-                current_batch_size = batch_size*slices_per_volume
+            current_index = (self.batch_index * batch_size) % n
+            if n > current_index + batch_size:
+                current_batch_size = batch_size
                 self.batch_index += 1
             else:
                 current_batch_size = n - current_index
@@ -766,7 +759,7 @@ class NumpyArrayIterator(Iterator):
         # so it can be done in parallel
 
         batch_x = np.zeros(
-            tuple([current_batch_size] + [1,] + list(self.x.shape)[1:]), dtype=K.floatx()) #Added + [1,] +
+            tuple([current_batch_size] + list(self.x.shape)[1:]), dtype=K.floatx())
 
         # build batch of image data
         seed_random = np.random.randint(0,2**8-1)
@@ -776,7 +769,7 @@ class NumpyArrayIterator(Iterator):
                 x = self.x[j,:,:,s,:]
                 x = self.image_data_generator.random_transform(x.astype(K.floatx()), seed=(j+1)*seed_random)
                 x = self.image_data_generator.standardize(x)
-                x = self.image_data_generator.change_dims(x)  # my addition
+                #x = self.image_data_generator.change_dims(x)  # my addition
                 batch_x[i,:,:,:,s,:] = x
         
         if self.save_to_dir:
