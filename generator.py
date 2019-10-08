@@ -512,7 +512,7 @@ class customImageDataGenerator(object):
             save_to_dir=save_to_dir,
             save_prefix=save_prefix,
             save_format=save_format)
-   
+
     def standardize(self, x):
         """Apply the normalization configuration to a batch of inputs.
         # Arguments
@@ -804,6 +804,7 @@ class NumpyArrayIterator(Iterator):
             tuple([current_batch_size] + list(self.x.shape)[1:]), dtype=K.floatx())
 	
         #print(index_array)
+
         # build batch of image data
         seed_random = np.random.randint(0,2**8-1)
         # Loop through z-axis
@@ -816,7 +817,7 @@ class NumpyArrayIterator(Iterator):
                 x = self.image_data_generator.standardize(x)
                # x = self.image_data_generator.change_dims(x)  # my addition
                 batch_x[i,:,:,s,:] = x
-        #print(batch_x.shape)
+
         if self.save_to_dir:
             for i in range(current_batch_size):
                 img = array_to_img(batch_x[i], self.data_format, scale=True)
