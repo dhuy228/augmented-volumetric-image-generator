@@ -23,6 +23,9 @@ import warnings
 
 try:
     from keras import backend as K
+    #print(K.floatx())
+    #K.set_floatx('float16')
+    #print(K.floatx())
 except:
     pass
 
@@ -32,6 +35,9 @@ try:
 except ImportError:
     pil_image = None
 
+# For elastic deform
+from scipy.ndimage.interpolation import map_coordinates
+from scipy.ndimage.filters import gaussian_filter
 
 def random_rotation(x, rg, row_axis=1, col_axis=2, channel_axis=0,
                     fill_mode='nearest', cval=0.):
@@ -60,6 +66,7 @@ def random_rotation(x, rg, row_axis=1, col_axis=2, channel_axis=0,
     x = apply_transform(x, transform_matrix, channel_axis, fill_mode, cval)
     return x
 
+
 def apply_brightness_shift(x, brightness):
     """Performs a brightness shift.
     # Arguments
@@ -76,6 +83,7 @@ def apply_brightness_shift(x, brightness):
     x = imgenhancer_Brightness.enhance(brightness)
     x = img_to_array(x)
     return x
+
 
 def random_shift(x, wrg, hrg, row_axis=1, col_axis=2, channel_axis=0,
                  fill_mode='nearest', cval=0.):
@@ -170,6 +178,33 @@ def random_zoom(x, zoom_range, row_axis=1, col_axis=2, channel_axis=0,
     transform_matrix = transform_matrix_offset_center(zoom_matrix, h, w)
     x = apply_transform(x, transform_matrix, channel_axis, fill_mode, cval)
     return x
+
+
+def elastic_deform(image, alpha, sigma, random_state=None):
+    """
+    Based on https://gist.github.com/erniejunior/601cdf56d2b424757de5
+    Elastic deformation of images as described in [Simard2003]_.
+    .. [Simard2003] Simard, Steinkraus and Platt, "Best Practices for
+       Convolutional Neural Networks applied to Visual Document Analysis", in
+       Proc. of the International Conference on Document Analysis and
+       Recognition, 2003.
+    """
+    print("Elastic Deformatiom")
+    if random_state is None:
+        random_state = np.random.RandomState(None)
+    else:
+        random_state = np.random.RandomState(random_state)
+
+    shape = image.shape
+    dx = gaussian_filter((random_state.rand(*shape) * 2 - 1), sigma, mode="constant", cval=0) * alpha
+    dy = gaussian_filter((random_state.rand(*shape) * 2 - 1), sigma, mode="constant", cval=0) * alpha
+    dz = np.zeros_like(dx)
+
+    x, y, z = np.meshgrid(np.arange(shape[0]), np.arange(shape[1]), np.arange(shape[2]))
+    indices = np.reshape(y+dy, (-1, 1)), np.reshape(x+dx, (-1, 1)), np.reshape(z, (-1, 1))
+
+    distored_image = map_coordinates(image, indices, order=1, mode='reflect')
+    return distored_image.reshape(image.shape)
 
 
 def random_channel_shift(x, intensity, channel_axis=0):
@@ -400,6 +435,7 @@ class customImageDataGenerator(object):
                  width_shift_range=0.,
                  height_shift_range=0.,
                  brightness_range=None,
+                 elastic_deform = False, # Elastic Deformation
                  shear_range=0.,
                  zoom_range=0.,
                  channel_shift_range=0.,
@@ -424,6 +460,7 @@ class customImageDataGenerator(object):
         self.width_shift_range = width_shift_range
         self.height_shift_range = height_shift_range
         self.brightness_range = brightness_range
+        self.elastic_deform = elastic_deform
         self.shear_range = shear_range
         self.zoom_range = zoom_range
         self.channel_shift_range = channel_shift_range
@@ -475,14 +512,7 @@ class customImageDataGenerator(object):
             save_to_dir=save_to_dir,
             save_prefix=save_prefix,
             save_format=save_format)
-
-    # my addition
-    def change_dims(self, x):
-    	"""expands dimenstions of a batch of images"""
-    	img_channel_axis = self.channel_axis #- 1
-    	x = np.expand_dims(x, axis=0)
-    	return x
-    
+   
     def standardize(self, x):
         """Apply the normalization configuration to a batch of inputs.
         # Arguments
@@ -609,6 +639,9 @@ class customImageDataGenerator(object):
             x = apply_transform(x, transform_matrix, img_channel_axis,
                                 fill_mode=self.fill_mode, cval=self.cval)
 
+        if self.elastic_deform:
+            x = elastic_deform(x, alpha=self.elastic_deform[0], sigma=self.elastic_deform[1], random_state=seed)
+
         if self.channel_shift_range != 0:
             x = random_channel_shift(x,
                                      self.channel_shift_range,
@@ -636,6 +669,7 @@ class customImageDataGenerator(object):
                 x = apply_brightness_shift(x, brightness)
                 
         return x
+
 
 class Iterator(object):
     """Abstract base class for image data iterators.
@@ -669,9 +703,9 @@ class Iterator(object):
                 index_array = np.arange(n)
                 if shuffle:
                     index_array = np.random.permutation(n)
-            current_index = (self.batch_index * batch_size * slices_per_volume) % n
-            if n > current_index + batch_size*slices_per_volume:
-                current_batch_size = batch_size*slices_per_volume
+            current_index = (self.batch_index * batch_size) % n
+            if n > current_index + batch_size:
+                current_batch_size = batch_size
                 self.batch_index += 1
             else:
                 current_batch_size = n - current_index
@@ -749,6 +783,7 @@ class NumpyArrayIterator(Iterator):
         self.save_prefix = save_prefix
         self.save_format = save_format
         slices_per_volume = x.shape[3] # len(zaxis)
+        #print("x.shape: ", x.shape)
         super(NumpyArrayIterator, self).__init__(
             x.shape[0], batch_size, slices_per_volume, shuffle, seed)
 
@@ -766,19 +801,22 @@ class NumpyArrayIterator(Iterator):
         # so it can be done in parallel
 
         batch_x = np.zeros(
-            tuple([current_batch_size] + [1,] + list(self.x.shape)[1:]), dtype=K.floatx()) #Added + [1,] +
-
+            tuple([current_batch_size] + list(self.x.shape)[1:]), dtype=K.floatx())
+	
+        #print(index_array)
         # build batch of image data
-        seed_random = np.random.randint(0,2**31-1)
+        seed_random = np.random.randint(0,2**8-1)
         # Loop through z-axis
         for s in range(self.slices_per_volume):
             for i,j in enumerate(index_array):
                 x = self.x[j,:,:,s,:]
+                #print("j: ",j)
+                #print("self.x[j,:,:,s,:]:, ",x.shape)
                 x = self.image_data_generator.random_transform(x.astype(K.floatx()), seed=(j+1)*seed_random)
                 x = self.image_data_generator.standardize(x)
-                x = self.image_data_generator.change_dims(x)  # my addition
-                batch_x[i,:,:,:,s,:] = x
-        
+               # x = self.image_data_generator.change_dims(x)  # my addition
+                batch_x[i,:,:,s,:] = x
+        #print(batch_x.shape)
         if self.save_to_dir:
             for i in range(current_batch_size):
                 img = array_to_img(batch_x[i], self.data_format, scale=True)
